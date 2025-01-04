@@ -56,7 +56,7 @@ def create_mapping_excel():
     wb = Workbook()
 
     # 1) Users
-    logger.info("\n[1/6] Fetching and writing user data...")
+    logger.info("\n[1/7] Fetching and writing user data...")
     users_sheet = wb.active
     users_sheet.title = "users"
     users_sheet.append(["user_name", "lower_email_address"])
@@ -72,7 +72,7 @@ def create_mapping_excel():
         ])
 
     # 2) Custom Fields
-    logger.info("\n[2/6] Fetching and writing custom fields...")
+    logger.info("\n[2/7] Fetching and writing custom fields...")
     cf_sheet = wb.create_sheet("customFields")
     cf_sheet.append(["id", "cfname"])
 
@@ -85,7 +85,7 @@ def create_mapping_excel():
         cf_sheet.append([field_id, field['name']])
 
     # 3) Projects
-    logger.info("\n[3/6] Fetching and writing projects...")
+    logger.info("\n[3/7] Fetching and writing projects...")
     proj_sheet = wb.create_sheet("projects")
     proj_sheet.append(["id", "pkey"])
 
@@ -96,7 +96,7 @@ def create_mapping_excel():
         proj_sheet.append([project['id'], project['key']])
 
     # 4) Status
-    logger.info("\n[4/6] Fetching and writing statuses...")
+    logger.info("\n[4/7] Fetching and writing statuses...")
     status_sheet = wb.create_sheet("status")
     status_sheet.append(["id", "pname"])
 
@@ -107,7 +107,7 @@ def create_mapping_excel():
         status_sheet.append([status['id'], status['name']])
 
     # 5) Priority
-    logger.info("\n[5/6] Fetching and writing priorities...")
+    logger.info("\n[5/7] Fetching and writing priorities...")
     prio_sheet = wb.create_sheet("priority")
     prio_sheet.append(["id", "pname"])
 
@@ -118,7 +118,7 @@ def create_mapping_excel():
         prio_sheet.append([priority['id'], priority['name']])
 
     # 6) Issue Type
-    logger.info("\n[6/6] Fetching and writing issue types...")
+    logger.info("\n[6/7] Fetching and writing issue types...")
     type_sheet = wb.create_sheet("issuetype")
     type_sheet.append(["id", "pname"])
 
@@ -127,6 +127,17 @@ def create_mapping_excel():
     time.sleep(1)
     for issuetype in tqdm(types, desc="Writing issue types", ncols=100):
         type_sheet.append([issuetype['id'], issuetype['name']])
+
+    # 7) Resolutions
+    logger.info("\n[7/7] Fetching and writing resolutions...")
+    res_sheet = wb.create_sheet("resolutions")
+    res_sheet.append(["id", "pname"])
+
+    resolutions = get_data_from_jira("resolution")
+    logger.info(f"   Found {len(resolutions)} resolutions. Writing them now...")
+    time.sleep(1)
+    for resolution in tqdm(resolutions, desc="Writing resolutions", ncols=100):
+        res_sheet.append([resolution['id'], resolution['name']])
 
     # Save the workbook
     output_file = "mapping.xlsx"
