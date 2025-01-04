@@ -66,7 +66,7 @@ pip install -r requirements.txt
 
 3. **Run** the script:
    ```bash
-   python app.py
+   python main.py
    ```
 
 4. **Choose** your JSON file when prompted
