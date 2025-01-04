@@ -31,8 +31,8 @@ logger.addHandler(stdout_handler)
 # Cloud parameters
 # -------------------------------------------------------------------
 cloud_email = "rodolfobortolin@gmail.com"
-cloud_token = "ATATT3xFfGF0EWV0QIUbrFHLwLViLokDB0knaYZ7Rzi-iqJzX4FAktjcdZLvK1UfvCMFsi-j2NDw2h255niSaIbrOFiuShIva0is548WHRa_0rgMT9C4p1Bjo3DSbqT2-LcxdqcUfUewzgL1Fxs4AmqbJRz3XS33dn9gWN5oTh7A2nzoVnvHd_A=8AC1F5CE"
-cloud_base_URL = "https://migration-source.atlassian.net"
+cloud_token = ""
+cloud_base_URL = "https://<domain>.atlassian.net"
 
 # -------------------------------------------------------------------
 # Global workbook and sheets (will be loaded after the initial checks)
