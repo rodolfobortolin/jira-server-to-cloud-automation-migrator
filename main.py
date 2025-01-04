@@ -31,7 +31,7 @@ logger.addHandler(stdout_handler)
 # Cloud parameters
 # -------------------------------------------------------------------
 cloud_email = "rodolfobortolin@gmail.com"
-cloud_token = ""
+cloud_token = "YOUR_API_TOKEN"
 cloud_base_URL = "https://<domain>.atlassian.net"
 
 # -------------------------------------------------------------------
@@ -50,6 +50,12 @@ wScheetIssueType = None
 # We will generate a final Excel (mapping_result.xlsx) from it.
 # -------------------------------------------------------------------
 mapping_data = []
+
+# -------------------------------------------------------------------
+# This list will store the actual replaced strings (old → new),
+# to later be written into replacements_log.txt.
+# -------------------------------------------------------------------
+replaced_strings = []
 
 # -------------------------------------------------------------------
 # Function to test Jira Cloud connection
@@ -298,10 +304,16 @@ class cloud:
                 data = data.replace(old_str, new_str)
                 replaced_count += 1
 
+                # Log the replacement
+                replaced_strings.append((old_str, new_str))
+
         # "Customer Request Type" -> "Request Type"
         if "Customer Request Type" in data:
             data = data.replace('Customer Request Type', 'Request Type')
             replaced_count += 1
+
+            # Log the replacement
+            replaced_strings.append(("Customer Request Type", "Request Type"))
 
         with open(fileName + "-modified-for-cloud.json", "wt", encoding='utf8') as fout:
             fout.write(data)
@@ -332,6 +344,7 @@ class cloud:
 
                 newId = getCustomFieldIdInCloud(cfName)
                 if newId:
+                    # Replace in JSON
                     data = data.replace(oldId, newId)
                     replaced_count += 1
                     mapping_data.append({
@@ -340,6 +353,9 @@ class cloud:
                         "server_id": oldId,
                         "cloud_id": newId
                     })
+
+                    # Log the replacement
+                    replaced_strings.append((oldId, newId))
                 else:
                     missingCustomFields.append(cfName)
                     mapping_data.append({
@@ -391,6 +407,10 @@ class cloud:
                         if fromStr in data:
                             data = data.replace(fromStr, toStr)
                             replaced_count += 1
+
+                            # Log the replacement
+                            replaced_strings.append((fromStr, toStr))
+
                     mapping_data.append({
                         "type": "status",
                         "name": name,
@@ -453,6 +473,10 @@ class cloud:
                             data = data.replace(fromStr, toStr)
                             replaced_count += 1
                             any_replaced = True
+
+                            # Log the replacement
+                            replaced_strings.append((fromStr, toStr))
+
                     if any_replaced:
                         mapping_data.append({
                             "type": "user",
@@ -511,6 +535,10 @@ class cloud:
                     if fromStr in data:
                         data = data.replace(fromStr, toStr)
                         replaced_count += 1
+
+                        # Log the replacement
+                        replaced_strings.append((fromStr, toStr))
+
                     mapping_data.append({
                         "type": "user",
                         "name": userEmail,
@@ -566,6 +594,10 @@ class cloud:
                         if fromStr in data:
                             data = data.replace(fromStr, toStr)
                             replaced_count += 1
+
+                            # Log the replacement
+                            replaced_strings.append((fromStr, toStr))
+
                     mapping_data.append({
                         "type": "priority",
                         "name": name,
@@ -625,6 +657,10 @@ class cloud:
                         if fromStr in data:
                             data = data.replace(fromStr, toStr)
                             replaced_count += 1
+
+                            # Log the replacement
+                            replaced_strings.append((fromStr, toStr))
+
                     mapping_data.append({
                         "type": "issuetype",
                         "name": name,
@@ -684,6 +720,10 @@ class cloud:
                         if fromStr in data:
                             data = data.replace(fromStr, toStr)
                             replaced_count += 1
+
+                            # Log the replacement
+                            replaced_strings.append((fromStr, toStr))
+
                     mapping_data.append({
                         "type": "project",
                         "name": key,
@@ -782,6 +822,9 @@ class cloud:
                     if old_value in data:
                         data = data.replace(old_value, new_value)
                         replaced_count += 1
+
+                        # Log the replacement
+                        replaced_strings.append((old_value, new_value))
 
         with open(fileName + "-modified-for-cloud.json", "wt", encoding='utf8') as fout:
             fout.write(data)
@@ -1014,9 +1057,16 @@ def main():
         print("\n13) Generating mapping Excel file...")
         cloud.generateMappingExcel(mapping_data, "mapping_result.xlsx")
 
+        # 14. Write out the replacements log to a .txt file
+        print("\n14) Generating replacements log...")
+        with open("replacements_log.txt", "w", encoding="utf8") as fp:
+            for old_str, new_str in replaced_strings:
+                fp.write(f"{old_str} ---> {new_str}\n")
+
         print("\nMigration completed successfully!")
         print(f"Main file: {filename}-modified-for-cloud-pretty.json")
         print("Mapping file: mapping_result.xlsx")
+        print("Replacements log: replacements_log.txt")
 
     except Exception as e:
         print(f"\nError during migration: {str(e)}")
