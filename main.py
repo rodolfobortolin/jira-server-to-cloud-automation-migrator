@@ -44,6 +44,7 @@ wScheetProjects = None
 wScheetStatus = None
 wScheetPriority = None
 wScheetIssueType = None
+wScheetResolutions = None  # NEW: for resolutions
 
 # -------------------------------------------------------------------
 # This list will store all mappings: serverID => cloudID.
@@ -169,7 +170,38 @@ def getPriorityNameInExcel(id):
             return wScheetPriority["B" + str(row)].value
     return None
 
-# Cloud lookups
+# NEW helpers for Resolutions
+def getResolutionNameInExcel(res_id):
+    """
+    Finds the resolution NAME in the 'resolutions' sheet, given a server resolution ID (string).
+    """
+    row = 0
+    for cell in wScheetResolutions['A']:
+        row += 1
+        if cell.value is not None and str(cell.value).strip() == str(res_id).strip():
+            return wScheetResolutions["B" + str(row)].value
+    return None
+
+def getResolutionIdInCloud(name):
+    """
+    GET /rest/api/3/resolution
+    Returns the 'id' of the resolution whose 'name' matches the given one.
+    """
+    if not name:
+        return None
+    response = requests.get(
+        f"{cloud_base_URL}/rest/api/3/resolution",
+        auth=HTTPBasicAuth(cloud_email, cloud_token),
+    )
+    if response.status_code != 200:
+        return None
+    resolutions = response.json()
+    for resolution in resolutions:
+        if resolution['name'] == name:
+            return resolution['id']
+    return None
+
+# Cloud lookups for standard fields
 def getCustomFieldIdInCloud(name):
     response = requests.get(
         f"{cloud_base_URL}/rest/api/3/field/search?query={name}",
@@ -311,8 +343,6 @@ class cloud:
         if "Customer Request Type" in data:
             data = data.replace('Customer Request Type', 'Request Type')
             replaced_count += 1
-
-            # Log the replacement
             replaced_strings.append(("Customer Request Type", "Request Type"))
 
         with open(fileName + "-modified-for-cloud.json", "wt", encoding='utf8') as fout:
@@ -338,13 +368,11 @@ class cloud:
                 oldId = data[match.start():match.end() + 5]  # e.g. 'customfield_10000'
                 cfName = getCustomFieldNameInExcel(oldId)
 
-                # If we can't match a name from Excel, skip adding to mapping_data
                 if not cfName:
-                    continue
+                    continue  # no match from Excel → skip
 
                 newId = getCustomFieldIdInCloud(cfName)
                 if newId:
-                    # Replace in JSON
                     data = data.replace(oldId, newId)
                     replaced_count += 1
                     mapping_data.append({
@@ -353,8 +381,6 @@ class cloud:
                         "server_id": oldId,
                         "cloud_id": newId
                     })
-
-                    # Log the replacement
                     replaced_strings.append((oldId, newId))
                 else:
                     missingCustomFields.append(cfName)
@@ -407,8 +433,6 @@ class cloud:
                         if fromStr in data:
                             data = data.replace(fromStr, toStr)
                             replaced_count += 1
-
-                            # Log the replacement
                             replaced_strings.append((fromStr, toStr))
 
                     mapping_data.append({
@@ -434,12 +458,77 @@ class cloud:
             logger.info(f"Missing statuses: {missingStatuses}")
 
     @staticmethod
+    def replaceResolution(fileName, templates):
+        """
+        Replaces resolution IDs based on Excel sheet.
+        E.g., "resolution":"1" => "resolution":"<cloud id>"
+        
+        :param fileName: The JSON file name (without the '-modified-for-cloud.json' suffix).
+        :param templates: A list of search patterns, e.g.:
+            [
+                'fieldType": "resolution", "type": "SET", "value": {"type": "ID", "value": "',
+                'selectedFieldType": "resolution", "comparison": "EQUALS", "compareValue": {"type": "ID", "value": "'
+            ]
+        """
+        with open(fileName + "-modified-for-cloud.json", "rt", encoding='utf8') as fin:
+            data = fin.read()
+
+        missingResolutions = []
+        replaced_count = 0
+
+        # We'll read all rows from the 'resolutions' sheet
+        resolution_rows = []
+        row_index = 1
+        for cell in wScheetResolutions['A']:
+            row_index += 1
+            if cell.value and str(cell.value).strip():
+                resolution_rows.append(row_index)
+
+        with tqdm(total=len(resolution_rows), desc="Replacing resolutions", ncols=100) as pbar:
+            for row in resolution_rows:
+                pbar.update(1)
+                original_id = str(wScheetResolutions["A" + str(row)].value).strip()
+                name = wScheetResolutions["B" + str(row)].value
+                if not name:
+                    continue
+
+                cloudResolutionId = getResolutionIdInCloud(name)
+                if cloudResolutionId:
+                    # Attempt to replace each pattern in the data
+                    for template in templates:
+                        fromStr = template + original_id + "\""
+                        toStr = template + str(cloudResolutionId) + "\""
+                        if fromStr in data:
+                            data = data.replace(fromStr, toStr)
+                            replaced_count += 1
+                            replaced_strings.append((fromStr, toStr))
+
+                    mapping_data.append({
+                        "type": "resolution",
+                        "name": name,
+                        "server_id": original_id,
+                        "cloud_id": cloudResolutionId
+                    })
+                else:
+                    missingResolutions.append(name)
+                    mapping_data.append({
+                        "type": "resolution",
+                        "name": name,
+                        "server_id": original_id,
+                        "cloud_id": None
+                    })
+
+        with open(fileName + "-modified-for-cloud.json", "wt", encoding='utf8') as fout:
+            fout.write(data)
+
+        logger.info(f"\n[Summary] Resolutions replaced: {replaced_count}, missing in Cloud: {len(missingResolutions)}")
+        if missingResolutions:
+            logger.info(f"Missing resolutions: {missingResolutions}")
+
+    @staticmethod
     def replaceUsers(fileName, templates):
         """
         Replaces user references (server user keys) with the corresponding Cloud account IDs.
-        Note: 
-        You can use a separate script (e.g., generate-mappings.py) to generate the mapping data for up to 1000 users.
-        For more extensive user sets, retrieving data directly from the DB is recommended.
         """
         with open(fileName + "-modified-for-cloud.json", "rt", encoding='utf8') as fin:
             data = fin.read()
@@ -473,8 +562,6 @@ class cloud:
                             data = data.replace(fromStr, toStr)
                             replaced_count += 1
                             any_replaced = True
-
-                            # Log the replacement
                             replaced_strings.append((fromStr, toStr))
 
                     if any_replaced:
@@ -502,9 +589,6 @@ class cloud:
     def replaceJIRAUSERUsers(fileName):
         """
         Specifically replaces 'JIRAUSERxxxx' references in the rules with the correct Cloud account IDs.
-        Note: 
-        You can use a separate script (e.g., generate-mappings.py) to generate user data for up to 1000 users.
-        For more extensive user sets, retrieving data directly from the DB is recommended.
         """
         with open(fileName + "-modified-for-cloud.json", "rt", encoding='utf8') as fin:
             data = fin.read()
@@ -535,8 +619,6 @@ class cloud:
                     if fromStr in data:
                         data = data.replace(fromStr, toStr)
                         replaced_count += 1
-
-                        # Log the replacement
                         replaced_strings.append((fromStr, toStr))
 
                     mapping_data.append({
@@ -594,8 +676,6 @@ class cloud:
                         if fromStr in data:
                             data = data.replace(fromStr, toStr)
                             replaced_count += 1
-
-                            # Log the replacement
                             replaced_strings.append((fromStr, toStr))
 
                     mapping_data.append({
@@ -657,8 +737,6 @@ class cloud:
                         if fromStr in data:
                             data = data.replace(fromStr, toStr)
                             replaced_count += 1
-
-                            # Log the replacement
                             replaced_strings.append((fromStr, toStr))
 
                     mapping_data.append({
@@ -720,8 +798,6 @@ class cloud:
                         if fromStr in data:
                             data = data.replace(fromStr, toStr)
                             replaced_count += 1
-
-                            # Log the replacement
                             replaced_strings.append((fromStr, toStr))
 
                     mapping_data.append({
@@ -813,6 +889,17 @@ class cloud:
                                     "cloud_id": new_id
                                 })
 
+                        elif fieldType == 'resolution':
+                            name = getResolutionNameInExcel(old_id)
+                            new_id = getResolutionIdInCloud(name) if name else None
+                            if name or new_id:
+                                mapping_data.append({
+                                    "type": "resolution",
+                                    "name": name,
+                                    "server_id": old_id,
+                                    "cloud_id": new_id
+                                })
+
                         if new_id:
                             new_ids.append(str(new_id))
 
@@ -822,8 +909,6 @@ class cloud:
                     if old_value in data:
                         data = data.replace(old_value, new_value)
                         replaced_count += 1
-
-                        # Log the replacement
                         replaced_strings.append((old_value, new_value))
 
         with open(fileName + "-modified-for-cloud.json", "wt", encoding='utf8') as fout:
@@ -891,6 +976,7 @@ class cloud:
 # Functions for user interaction
 # -------------------------------------------------------------------
 def list_json_files():
+
     return [f for f in os.listdir('.') if f.endswith('.json')]
 
 def select_file():
@@ -926,7 +1012,7 @@ def main():
 
     # Since the workbook exists, we can safely load it now
     global wBook, wScheetUsers, wScheetCustomFields, wScheetProjects
-    global wScheetStatus, wScheetPriority, wScheetIssueType
+    global wScheetStatus, wScheetPriority, wScheetIssueType, wScheetResolutions
 
     wBook = load_workbook('mapping.xlsx')
     wScheetUsers = wBook['users']
@@ -935,6 +1021,9 @@ def main():
     wScheetStatus = wBook['status']
     wScheetPriority = wBook['priority']
     wScheetIssueType = wBook['issuetype']
+    
+    # NEW: load the 'resolutions' sheet
+    wScheetResolutions = wBook['resolutions']
 
     # Note regarding generate-mappings.py
     print("\nNOTE: You can use the generate-mappings.py script to produce partial mappings for up to 1000 users. "
@@ -1000,8 +1089,16 @@ def main():
         ])
         time.sleep(1)
 
-        # 7. Replace project IDs
-        print("7) Replacing project IDs...")
+        # 7. Replace resolution IDs
+        print("7) Replacing resolution IDs...")
+        cloud.replaceResolution(filename, [
+            'fieldType": "resolution", "type": "SET", "value": {"type": "ID", "value": "',
+            'selectedFieldType": "resolution", "comparison": "EQUALS", "compareValue": {"type": "ID", "value": "'
+        ])
+        time.sleep(1)
+
+        # 8. Replace project IDs
+        print("8) Replacing project IDs...")
         cloud.replaceProject(filename, [
             'fieldType": "project", "type": "SET", "value": {"type": "ID", "value": "',
             'selectedFieldType": "project", "comparison": "EQUALS", "compareValue": {"type": "ID", "value": "',
@@ -1009,8 +1106,8 @@ def main():
         ])
         time.sleep(1)
 
-        # 8. Replace users
-        print("8) Replacing users...")
+        # 9. Replace users
+        print("9) Replacing users...")
         cloud.replaceUsers(filename, [
             '"authorAccountId": "',
             '"actorAccountId": "',
@@ -1018,25 +1115,26 @@ def main():
         ])
         time.sleep(1)
 
-        # 9. Replace JIRAUSER references
-        print("9) Replacing JIRAUSER users...")
+        # 10. Replace JIRAUSER references
+        print("10) Replacing JIRAUSER users...")
         cloud.replaceJIRAUSERUsers(filename)
         time.sleep(1)
 
-        # 10. Replace IDs in ONE_OF/NOT_ONE_OF conditions
-        print("10) Processing ONE_OF/NOT_ONE_OF conditions...")
+        # 11. Replace IDs in ONE_OF/NOT_ONE_OF conditions
+        print("11) Processing ONE_OF/NOT_ONE_OF conditions...")
         cloud.replaceOneOfCondition(filename, 'status')
         cloud.replaceOneOfCondition(filename, 'issuetype')
         cloud.replaceOneOfCondition(filename, 'priority')
+        cloud.replaceOneOfCondition(filename, 'resolution')
         time.sleep(1)
 
-        # 11. Format final JSON
-        print("11) Formatting final file...")
+        # 12. Format final JSON
+        print("12) Formatting final file...")
         cloud.formatJSON(filename)
 
-        # 12. Split files if requested
+        # 13. Split files if requested
         if splitFiles:
-            print("\n12) Creating separate files for each rule...")
+            print("\n13) Creating separate files for each rule...")
             with open(filename + "-modified-for-cloud.json", "r", encoding='utf8') as f:
                 data = json.load(f)
 
@@ -1053,12 +1151,12 @@ def main():
                             json.dump({"rules": [automation], "cloud": False}, out_json_file, indent=2)
                         print(f"   File created: {new_filename}")
 
-        # 13. Generate a final mapping Excel with server->cloud IDs
-        print("\n13) Generating mapping Excel file...")
+        # 14. Generate a final mapping Excel with server->cloud IDs
+        print("\n14) Generating mapping Excel file...")
         cloud.generateMappingExcel(mapping_data, "mapping_result.xlsx")
 
-        # 14. Write out the replacements log to a .txt file
-        print("\n14) Generating replacements log...")
+        # 15. Write out the replacements log to a .txt file
+        print("\n15) Generating replacements log...")
         with open("replacements_log.txt", "w", encoding="utf8") as fp:
             for old_str, new_str in replaced_strings:
                 fp.write(f"{old_str} ---> {new_str}\n")
